@@ -2,6 +2,7 @@
 from flask import Flask, render_template, request, jsonify, session
 from database import init_db, log_chat, get_session_history
 from classifier import classify_query, generate_ai_response
+import sqlite3
 
 app = Flask(__name__)
 app.secret_key = "careerpilot-support-secret-key"
@@ -34,11 +35,31 @@ def chat():
         "escalated": escalated
     })
 
-@app.route("/api/history", methods=["GET"])
-def history():
-    session_id = session.get("session_id", "")
-    logs = get_session_history(session_id)
-    return jsonify({"session_id": session_id, "history": logs})
+@app.route("/api/analytics", methods=["GET"])
+def analytics():
+    conn = sqlite3.connect("support_chatbot.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM chat_logs")
+    total_queries = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM escalated_tickets")
+    total_escalated = cursor.fetchone()[0]
+
+    cursor.execute("SELECT category, COUNT(*) FROM chat_logs GROUP BY category")
+    category_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
+
+    conn.close()
+
+    return jsonify({
+        "status": "success",
+        "metrics": {
+            "total_queries": total_queries,
+            "total_escalated": total_escalated,
+            "resolution_rate": f"{((total_queries - total_escalated) / max(total_queries, 1)) * 100:.1f}%",
+            "category_breakdown": category_breakdown
+        }
+    })
 
 if __name__ == "__main__":
     app.run(debug=True)
